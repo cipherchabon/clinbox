@@ -90,10 +90,16 @@ clinbox status
 ## Usage
 
 ```bash
-# Process unread emails (default)
+# Process unread emails (default, max 20)
 clinbox
 
-# Process last N emails (read and unread)
+# Process unread emails (limit to 10)
+clinbox -n 10
+
+# Process all emails (read and unread)
+clinbox -a
+
+# Process last 50 emails (read and unread)
 clinbox -a -n 50
 
 # Show pending tasks
