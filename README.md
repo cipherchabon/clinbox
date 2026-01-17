@@ -144,11 +144,11 @@ All configuration is stored in `~/.clinbox/`:
 
 ## Roadmap
 
+- [ ] Multiple Gmail accounts support
 - [ ] Filters (`--from`, `--label`, `--today`)
 - [ ] Summary command (non-interactive daily digest)
 - [ ] Todoist/Linear integration
 - [ ] Automatic rules (`clinbox rules add "from:github" archive`)
-- [ ] Outlook/Microsoft 365 support
 
 ## Alternatives
 
