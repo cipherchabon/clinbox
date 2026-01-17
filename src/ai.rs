@@ -78,7 +78,8 @@ impl AiClient {
             max_tokens: Some(500),
         };
 
-        let response = self.http
+        let response = self
+            .http
             .post(OPENROUTER_API_URL)
             .header("Authorization", format!("Bearer {}", self.api_key))
             .header("HTTP-Referer", "https://github.com/clinbox")
@@ -94,23 +95,27 @@ impl AiClient {
             anyhow::bail!("AI API error {}: {}", status, body);
         }
 
-        let chat_response: ChatResponse = response.json().await
+        let chat_response: ChatResponse = response
+            .json()
+            .await
             .context("Failed to parse AI response")?;
 
-        let content = chat_response.choices
+        let content = chat_response
+            .choices
             .first()
             .map(|c| c.message.content.clone())
             .unwrap_or_default();
 
         // Clean up JSON if wrapped in markdown
-        let json_str = content.trim()
+        let json_str = content
+            .trim()
             .trim_start_matches("```json")
             .trim_start_matches("```")
             .trim_end_matches("```")
             .trim();
 
-        let parsed: AnalysisResponse = serde_json::from_str(json_str)
-            .context("Failed to parse AI analysis JSON")?;
+        let parsed: AnalysisResponse =
+            serde_json::from_str(json_str).context("Failed to parse AI analysis JSON")?;
 
         Ok(EmailAnalysis {
             email_id: email.id.clone(),
@@ -147,7 +152,8 @@ impl AiClient {
             max_tokens: Some(500),
         };
 
-        let response = self.http
+        let response = self
+            .http
             .post(OPENROUTER_API_URL)
             .header("Authorization", format!("Bearer {}", self.api_key))
             .header("HTTP-Referer", "https://github.com/clinbox")
@@ -163,10 +169,13 @@ impl AiClient {
             anyhow::bail!("AI API error {}: {}", status, body);
         }
 
-        let chat_response: ChatResponse = response.json().await
+        let chat_response: ChatResponse = response
+            .json()
+            .await
             .context("Failed to parse AI response")?;
 
-        let content = chat_response.choices
+        let content = chat_response
+            .choices
             .first()
             .map(|c| c.message.content.clone())
             .unwrap_or_default();

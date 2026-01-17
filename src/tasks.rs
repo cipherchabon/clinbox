@@ -29,10 +29,9 @@ impl TaskStore {
         let path = Config::tasks_path()?;
 
         if path.exists() {
-            let content = fs::read_to_string(&path)
-                .context("Failed to read tasks file")?;
-            let store: TaskStore = serde_json::from_str(&content)
-                .context("Failed to parse tasks file")?;
+            let content = fs::read_to_string(&path).context("Failed to read tasks file")?;
+            let store: TaskStore =
+                serde_json::from_str(&content).context("Failed to parse tasks file")?;
             Ok(store)
         } else {
             Ok(TaskStore::default())
@@ -44,16 +43,20 @@ impl TaskStore {
         let path = Config::tasks_path()?;
         fs::create_dir_all(path.parent().unwrap())?;
 
-        let content = serde_json::to_string_pretty(self)
-            .context("Failed to serialize tasks")?;
-        fs::write(&path, content)
-            .context("Failed to write tasks file")?;
+        let content = serde_json::to_string_pretty(self).context("Failed to serialize tasks")?;
+        fs::write(&path, content).context("Failed to write tasks file")?;
 
         Ok(())
     }
 
     /// Add a new task
-    pub fn add(&mut self, title: String, description: Option<String>, email_id: Option<String>, email_subject: Option<String>) -> Result<Task> {
+    pub fn add(
+        &mut self,
+        title: String,
+        description: Option<String>,
+        email_id: Option<String>,
+        email_subject: Option<String>,
+    ) -> Result<Task> {
         let task = Task {
             id: generate_id(),
             title,
@@ -74,9 +77,7 @@ impl TaskStore {
 
     /// List pending tasks
     pub fn pending(&self) -> Vec<&Task> {
-        self.tasks.iter()
-            .filter(|t| !t.completed)
-            .collect()
+        self.tasks.iter().filter(|t| !t.completed).collect()
     }
 
     /// Mark a task as completed

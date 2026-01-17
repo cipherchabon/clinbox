@@ -2,7 +2,7 @@ use anyhow::Result;
 use crossterm::{
     event::{self, Event, KeyCode, KeyEventKind},
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use ratatui::{
     prelude::*,
@@ -62,10 +62,10 @@ impl Tui {
             let chunks = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([
-                    Constraint::Length(3),  // Header
-                    Constraint::Length(5),  // Email metadata
-                    Constraint::Min(10),    // AI analysis + body
-                    Constraint::Length(3),  // Actions
+                    Constraint::Length(3), // Header
+                    Constraint::Length(5), // Email metadata
+                    Constraint::Min(10),   // AI analysis + body
+                    Constraint::Length(3), // Actions
                 ])
                 .split(area);
 
@@ -74,7 +74,11 @@ impl Tui {
                 " 📧 Clinbox                                          [{}/{}]",
                 current, total
             ))
-            .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
+            .style(
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            )
             .block(Block::default().borders(Borders::ALL));
             frame.render_widget(header, chunks[0]);
 
@@ -95,8 +99,8 @@ impl Tui {
             let content_chunks = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([
-                    Constraint::Length(6),  // AI summary
-                    Constraint::Min(4),     // Body preview
+                    Constraint::Length(6), // AI summary
+                    Constraint::Min(4),    // Body preview
                 ])
                 .split(chunks[2]);
 
@@ -116,16 +120,18 @@ impl Tui {
                     analysis.priority.label(),
                     analysis.category.label(),
                     analysis.estimated_time_minutes,
-                    analysis.suggested_action.as_ref()
+                    analysis
+                        .suggested_action
+                        .as_ref()
                         .map(|a| format!("\n ➡️  {}", a))
                         .unwrap_or_default()
                 );
 
-                let ai_widget = Paragraph::new(ai_text)
-                    .style(priority_style)
-                    .block(Block::default()
+                let ai_widget = Paragraph::new(ai_text).style(priority_style).block(
+                    Block::default()
                         .borders(Borders::LEFT | Borders::RIGHT)
-                        .border_style(Style::default().fg(Color::DarkGray)));
+                        .border_style(Style::default().fg(Color::DarkGray)),
+                );
                 frame.render_widget(ai_widget, content_chunks[0]);
             } else {
                 let loading = Paragraph::new(" 🔄 Analyzing email...")
@@ -139,10 +145,12 @@ impl Tui {
             let body_widget = Paragraph::new(format!(" {}", body_preview.replace('\n', "\n ")))
                 .style(Style::default().fg(Color::Gray))
                 .wrap(Wrap { trim: true })
-                .block(Block::default()
-                    .title(" Preview ")
-                    .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::DarkGray)));
+                .block(
+                    Block::default()
+                        .title(" Preview ")
+                        .borders(Borders::ALL)
+                        .border_style(Style::default().fg(Color::DarkGray)),
+                );
             frame.render_widget(body_widget, content_chunks[1]);
 
             // Actions footer
@@ -192,9 +200,7 @@ impl Tui {
             let widget = Paragraph::new(text)
                 .style(Style::default().fg(Color::Cyan))
                 .alignment(Alignment::Center)
-                .block(Block::default()
-                    .title(" New Task ")
-                    .borders(Borders::ALL));
+                .block(Block::default().title(" New Task ").borders(Borders::ALL));
 
             let centered = centered_rect(70, 40, area);
             frame.render_widget(widget, centered);
@@ -219,9 +225,11 @@ impl Tui {
             let widget = Paragraph::new(content)
                 .style(Style::default().fg(Color::White))
                 .wrap(Wrap { trim: false })
-                .block(Block::default()
-                    .title(" Full Email - Press any key to go back ")
-                    .borders(Borders::ALL));
+                .block(
+                    Block::default()
+                        .title(" Full Email - Press any key to go back ")
+                        .borders(Borders::ALL),
+                );
 
             frame.render_widget(widget, area);
         })?;
@@ -255,9 +263,7 @@ impl Tui {
             let widget = Paragraph::new(text)
                 .style(Style::default().fg(Color::Cyan))
                 .alignment(Alignment::Center)
-                .block(Block::default()
-                    .title(" Clinbox ")
-                    .borders(Borders::ALL));
+                .block(Block::default().title(" Clinbox ").borders(Borders::ALL));
 
             let centered = centered_rect(50, 40, area);
             frame.render_widget(widget, centered);
@@ -290,9 +296,10 @@ impl Tui {
     pub fn wait_for_key(&self) -> Result<()> {
         loop {
             if let Event::Key(key) = event::read()?
-                && key.kind == KeyEventKind::Press {
-                    return Ok(());
-                }
+                && key.kind == KeyEventKind::Press
+            {
+                return Ok(());
+            }
         }
     }
 
@@ -312,27 +319,27 @@ impl Tui {
         }
     }
 
-    pub fn draw_reply_draft(
-        &mut self,
-        email: &Email,
-        draft: &str,
-    ) -> Result<()> {
+    pub fn draw_reply_draft(&mut self, email: &Email, draft: &str) -> Result<()> {
         self.terminal.draw(|frame| {
             let area = frame.area();
 
             let chunks = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([
-                    Constraint::Length(3),  // Header
-                    Constraint::Length(4),  // To/Subject
-                    Constraint::Min(10),    // Draft content
-                    Constraint::Length(3),  // Actions
+                    Constraint::Length(3), // Header
+                    Constraint::Length(4), // To/Subject
+                    Constraint::Min(10),   // Draft content
+                    Constraint::Length(3), // Actions
                 ])
                 .split(area);
 
             // Header
             let header = Paragraph::new(" 📝 Reply Draft (AI Generated)")
-                .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
+                .style(
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                )
                 .block(Block::default().borders(Borders::ALL));
             frame.render_widget(header, chunks[0]);
 
@@ -342,11 +349,7 @@ impl Tui {
             } else {
                 format!("Re: {}", email.subject)
             };
-            let metadata = format!(
-                " To: {}\n Subject: {}",
-                email.from,
-                subject
-            );
+            let metadata = format!(" To: {}\n Subject: {}", email.from, subject);
             let metadata_widget = Paragraph::new(metadata)
                 .style(Style::default().fg(Color::White))
                 .block(Block::default().borders(Borders::LEFT | Borders::RIGHT));
@@ -356,10 +359,12 @@ impl Tui {
             let draft_widget = Paragraph::new(format!(" {}", draft.replace('\n', "\n ")))
                 .style(Style::default().fg(Color::Green))
                 .wrap(Wrap { trim: false })
-                .block(Block::default()
-                    .title(" Draft ")
-                    .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::Green)));
+                .block(
+                    Block::default()
+                        .title(" Draft ")
+                        .borders(Borders::ALL)
+                        .border_style(Style::default().fg(Color::Green)),
+                );
             frame.render_widget(draft_widget, chunks[2]);
 
             // Actions

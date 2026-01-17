@@ -99,15 +99,17 @@ impl Email {
     /// Get the body as plain text
     pub fn body_text(&self) -> String {
         if let Some(plain) = &self.body_plain
-            && !plain.is_empty() {
-                return plain.clone();
-            }
+            && !plain.is_empty()
+        {
+            return plain.clone();
+        }
 
         if let Some(html) = &self.body_html
             && !html.is_empty()
-                && let Ok(text) = html2text::from_read(html.as_bytes(), 80) {
-                    return text;
-                }
+            && let Ok(text) = html2text::from_read(html.as_bytes(), 80)
+        {
+            return text;
+        }
 
         self.snippet.clone()
     }

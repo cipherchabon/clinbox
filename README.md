@@ -81,13 +81,25 @@ cargo install --path .
 
 ### 3. Configure Clinbox
 
+**Add a Gmail account:**
+
 ```bash
-clinbox config gmail.client_id YOUR_CLIENT_ID
-clinbox config gmail.client_secret YOUR_CLIENT_SECRET
+# If you have credentials.json in current directory
+clinbox account add personal
+
+# Or specify credentials explicitly
+clinbox account add personal --client-id YOUR_CLIENT_ID --client-secret YOUR_CLIENT_SECRET
+```
+
+This will open your browser for OAuth authorization.
+
+**Configure AI:**
+
+```bash
 clinbox config ai.api_key YOUR_OPENROUTER_API_KEY
 ```
 
-Verify configuration:
+**Verify configuration:**
 
 ```bash
 clinbox status
@@ -108,11 +120,37 @@ clinbox -a
 # Process last 50 emails (read and unread)
 clinbox -a -n 50
 
+# Use a specific account
+clinbox --account work
+
 # Show pending tasks
 clinbox tasks
 
 # Show configuration status
 clinbox status
+```
+
+### Managing Multiple Accounts
+
+```bash
+# Add accounts
+clinbox account add personal    # Uses credentials.json or existing credentials
+clinbox account add work        # Each account opens OAuth flow
+
+# List accounts
+clinbox account list
+# Output:
+# * personal (user@gmail.com) [default]
+#   work (work@company.com)
+
+# Set default account
+clinbox account default work
+
+# Remove an account
+clinbox account remove old-account
+
+# Use specific account for a session
+clinbox --account work
 ```
 
 ### Keyboard Shortcuts
@@ -144,13 +182,18 @@ clinbox config ai.model google/gemini-2.0-flash-001
 
 All configuration is stored in `~/.clinbox/`:
 
-- `config.json` - API keys and settings
-- `token.json` - Gmail OAuth tokens
-- `tasks.json` - Local task storage
+```
+~/.clinbox/
+├── config.json         # Accounts and settings
+├── tasks.json          # Local task storage
+└── tokens/
+    ├── personal.json   # OAuth token for "personal" account
+    └── work.json       # OAuth token for "work" account
+```
 
 ## Roadmap
 
-- [ ] Multiple Gmail accounts support
+- [x] Multiple Gmail accounts support
 - [ ] Filters (`--from`, `--label`, `--today`)
 - [ ] Summary command (non-interactive daily digest)
 - [ ] Todoist/Linear integration

@@ -1,5 +1,8 @@
 use anyhow::{Context, Result, bail};
-use base64::{Engine as _, engine::general_purpose::{URL_SAFE, URL_SAFE_NO_PAD}};
+use base64::{
+    Engine as _,
+    engine::general_purpose::{URL_SAFE, URL_SAFE_NO_PAD},
+};
 use chrono::{DateTime, Utc};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -7,10 +10,24 @@ use std::fs;
 use std::io::{BufRead, BufReader, Write};
 use std::net::TcpListener;
 
-use crate::config::Config;
+use crate::config::{Config, GmailAccount};
 use crate::email::{Attachment, Email};
 
 const GMAIL_AUTH_URL: &str = "https://accounts.google.com/o/oauth2/v2/auth";
+
+/// Write token file with secure permissions (owner read/write only)
+fn write_token_file(path: &std::path::Path, content: &str) -> Result<()> {
+    fs::write(path, content)?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let perms = std::fs::Permissions::from_mode(0o600);
+        fs::set_permissions(path, perms)?;
+    }
+
+    Ok(())
+}
 const GMAIL_TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
 const GMAIL_API_BASE: &str = "https://gmail.googleapis.com/gmail/v1";
 
@@ -34,8 +51,8 @@ pub struct GmailClient {
 }
 
 impl GmailClient {
-    pub async fn new(config: &Config) -> Result<Self> {
-        let token = Self::get_valid_token(config).await?;
+    pub async fn new(account: &GmailAccount) -> Result<Self> {
+        let token = Self::get_valid_token(account).await?;
 
         Ok(Self {
             http: Client::new(),
@@ -43,14 +60,15 @@ impl GmailClient {
         })
     }
 
-    async fn get_valid_token(config: &Config) -> Result<String> {
-        let token_path = Config::token_path()?;
+    async fn get_valid_token(account: &GmailAccount) -> Result<String> {
+        let token_path = Config::token_path_for_account(&account.id)?;
 
         if token_path.exists() {
             let content = fs::read_to_string(&token_path)?;
             let stored: StoredToken = serde_json::from_str(&content)?;
 
-            let is_expired = stored.expires_at
+            let is_expired = stored
+                .expires_at
                 .map(|exp| exp < Utc::now())
                 .unwrap_or(true);
 
@@ -58,29 +76,25 @@ impl GmailClient {
                 return Ok(stored.access_token);
             }
 
-            if let Ok(new_token) = Self::refresh_token(config, &stored.refresh_token).await {
+            if let Ok(new_token) = Self::refresh_token(account, &stored.refresh_token).await {
                 return Ok(new_token);
             }
         }
 
-        Self::oauth_flow(config).await
+        Self::oauth_flow(account).await
     }
 
-    async fn refresh_token(config: &Config, refresh_token: &str) -> Result<String> {
+    async fn refresh_token(account: &GmailAccount, refresh_token: &str) -> Result<String> {
         let client = Client::new();
 
         let params = [
-            ("client_id", config.gmail.client_id.as_str()),
-            ("client_secret", config.gmail.client_secret.as_str()),
+            ("client_id", account.client_id.as_str()),
+            ("client_secret", account.client_secret.as_str()),
             ("refresh_token", refresh_token),
             ("grant_type", "refresh_token"),
         ];
 
-        let response = client
-            .post(GMAIL_TOKEN_URL)
-            .form(&params)
-            .send()
-            .await?;
+        let response = client.post(GMAIL_TOKEN_URL).form(&params).send().await?;
 
         if !response.status().is_success() {
             bail!("Failed to refresh token: {}", response.status());
@@ -88,32 +102,32 @@ impl GmailClient {
 
         let token_response: TokenResponse = response.json().await?;
 
-        let expires_at = token_response.expires_in.map(|secs| {
-            Utc::now() + chrono::Duration::seconds(secs)
-        });
+        let expires_at = token_response
+            .expires_in
+            .map(|secs| Utc::now() + chrono::Duration::seconds(secs));
 
         let stored = StoredToken {
             access_token: token_response.access_token.clone(),
             refresh_token: refresh_token.to_string(),
             expires_at,
         };
-        let token_path = Config::token_path()?;
-        fs::write(&token_path, serde_json::to_string_pretty(&stored)?)?;
+        let token_path = Config::token_path_for_account(&account.id)?;
+        write_token_file(&token_path, &serde_json::to_string_pretty(&stored)?)?;
 
         Ok(token_response.access_token)
     }
 
-    async fn oauth_flow(config: &Config) -> Result<String> {
+    pub async fn oauth_flow(account: &GmailAccount) -> Result<String> {
         let listener = TcpListener::bind("127.0.0.1:0")?;
         let port = listener.local_addr()?.port();
         let redirect_uri = format!("http://localhost:{}", port);
 
-        let scopes = "https://www.googleapis.com/auth/gmail.modify https://www.googleapis.com/auth/gmail.send";
+        let scopes = "https://www.googleapis.com/auth/gmail.modify https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/userinfo.email";
 
         let auth_url = format!(
             "{}?client_id={}&redirect_uri={}&response_type=code&scope={}&access_type=offline&prompt=consent",
             GMAIL_AUTH_URL,
-            urlencoding::encode(&config.gmail.client_id),
+            urlencoding::encode(&account.client_id),
             urlencoding::encode(&redirect_uri),
             urlencoding::encode(scopes)
         );
@@ -150,18 +164,14 @@ impl GmailClient {
         let decoded_code = urlencoding::decode(&code)?.into_owned();
 
         let params = [
-            ("client_id", config.gmail.client_id.as_str()),
-            ("client_secret", config.gmail.client_secret.as_str()),
+            ("client_id", account.client_id.as_str()),
+            ("client_secret", account.client_secret.as_str()),
             ("code", decoded_code.as_str()),
             ("grant_type", "authorization_code"),
             ("redirect_uri", redirect_uri.as_str()),
         ];
 
-        let response = client
-            .post(GMAIL_TOKEN_URL)
-            .form(&params)
-            .send()
-            .await?;
+        let response = client.post(GMAIL_TOKEN_URL).form(&params).send().await?;
 
         if !response.status().is_success() {
             let error = response.text().await?;
@@ -170,21 +180,41 @@ impl GmailClient {
 
         let token_response: TokenResponse = response.json().await?;
 
-        let expires_at = token_response.expires_in.map(|secs| {
-            Utc::now() + chrono::Duration::seconds(secs)
-        });
+        let expires_at = token_response
+            .expires_in
+            .map(|secs| Utc::now() + chrono::Duration::seconds(secs));
 
         let stored = StoredToken {
             access_token: token_response.access_token.clone(),
             refresh_token: token_response.refresh_token.unwrap_or_default(),
             expires_at,
         };
-        let token_path = Config::token_path()?;
-        fs::create_dir_all(token_path.parent().unwrap())?;
-        fs::write(&token_path, serde_json::to_string_pretty(&stored)?)?;
+        let tokens_dir = Config::tokens_dir()?;
+        fs::create_dir_all(&tokens_dir)?;
+        let token_path = Config::token_path_for_account(&account.id)?;
+        write_token_file(&token_path, &serde_json::to_string_pretty(&stored)?)?;
 
         println!("Authorization successful!\n");
         Ok(token_response.access_token)
+    }
+
+    /// Fetch the authenticated user's email address
+    pub async fn fetch_user_email(&self) -> Result<String> {
+        let url = format!("{}/users/me/profile", GMAIL_API_BASE);
+
+        let response = self
+            .http
+            .get(&url)
+            .bearer_auth(&self.access_token)
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            bail!("Failed to fetch user profile: {}", response.status());
+        }
+
+        let profile: UserProfile = response.json().await?;
+        Ok(profile.email_address)
     }
 
     pub async fn fetch_unread(&self, max_results: u32) -> Result<Vec<Email>> {
@@ -193,7 +223,8 @@ impl GmailClient {
             GMAIL_API_BASE, max_results
         );
 
-        let response: MessageListResponse = self.http
+        let response: MessageListResponse = self
+            .http
             .get(&url)
             .bearer_auth(&self.access_token)
             .send()
@@ -218,7 +249,8 @@ impl GmailClient {
             GMAIL_API_BASE, max_results
         );
 
-        let response: MessageListResponse = self.http
+        let response: MessageListResponse = self
+            .http
             .get(&url)
             .bearer_auth(&self.access_token)
             .send()
@@ -237,12 +269,10 @@ impl GmailClient {
     }
 
     pub async fn fetch_email(&self, id: &str) -> Result<Email> {
-        let url = format!(
-            "{}/users/me/messages/{}?format=full",
-            GMAIL_API_BASE, id
-        );
+        let url = format!("{}/users/me/messages/{}?format=full", GMAIL_API_BASE, id);
 
-        let response: MessageResponse = self.http
+        let response: MessageResponse = self
+            .http
             .get(&url)
             .bearer_auth(&self.access_token)
             .send()
@@ -257,7 +287,8 @@ impl GmailClient {
         let headers = msg.payload.headers.clone().unwrap_or_default();
 
         let get_header = |name: &str| -> String {
-            headers.iter()
+            headers
+                .iter()
                 .find(|h| h.name.eq_ignore_ascii_case(name))
                 .map(|h| h.value.clone())
                 .unwrap_or_default()
@@ -270,7 +301,9 @@ impl GmailClient {
 
         let (body_plain, body_html) = self.extract_body(&msg.payload);
         let attachments = self.extract_attachments(&msg.payload);
-        let is_unread = msg.label_ids.as_ref()
+        let is_unread = msg
+            .label_ids
+            .as_ref()
             .is_some_and(|l| l.contains(&"UNREAD".to_string()));
 
         Ok(Email {
@@ -298,14 +331,16 @@ impl GmailClient {
 
             if mime == "text/plain" {
                 if let Some(data) = part.body.as_ref().and_then(|b| b.data.as_ref())
-                    && let Ok(decoded) = URL_SAFE.decode(data) {
-                        *plain = String::from_utf8(decoded).ok();
-                    }
+                    && let Ok(decoded) = URL_SAFE.decode(data)
+                {
+                    *plain = String::from_utf8(decoded).ok();
+                }
             } else if mime == "text/html"
                 && let Some(data) = part.body.as_ref().and_then(|b| b.data.as_ref())
-                    && let Ok(decoded) = URL_SAFE.decode(data) {
-                        *html = String::from_utf8(decoded).ok();
-                    }
+                && let Ok(decoded) = URL_SAFE.decode(data)
+            {
+                *html = String::from_utf8(decoded).ok();
+            }
 
             if let Some(parts) = &part.parts {
                 for p in parts {
@@ -323,16 +358,19 @@ impl GmailClient {
 
         fn process_part(part: &MessagePart, attachments: &mut Vec<Attachment>) {
             if let Some(filename) = &part.filename
-                && !filename.is_empty() {
-                    attachments.push(Attachment {
-                        filename: filename.clone(),
-                        mime_type: part.mime_type.clone().unwrap_or_default(),
-                        size: part.body.as_ref().and_then(|b| b.size).unwrap_or(0),
-                        attachment_id: part.body.as_ref()
-                            .and_then(|b| b.attachment_id.clone())
-                            .unwrap_or_default(),
-                    });
-                }
+                && !filename.is_empty()
+            {
+                attachments.push(Attachment {
+                    filename: filename.clone(),
+                    mime_type: part.mime_type.clone().unwrap_or_default(),
+                    size: part.body.as_ref().and_then(|b| b.size).unwrap_or(0),
+                    attachment_id: part
+                        .body
+                        .as_ref()
+                        .and_then(|b| b.attachment_id.clone())
+                        .unwrap_or_default(),
+                });
+            }
 
             if let Some(parts) = &part.parts {
                 for p in parts {
@@ -352,7 +390,8 @@ impl GmailClient {
             "removeLabelIds": ["INBOX", "UNREAD"]
         });
 
-        let response = self.http
+        let response = self
+            .http
             .post(&url)
             .bearer_auth(&self.access_token)
             .json(&body)
@@ -369,7 +408,8 @@ impl GmailClient {
     pub async fn delete(&self, id: &str) -> Result<()> {
         let url = format!("{}/users/me/messages/{}/trash", GMAIL_API_BASE, id);
 
-        let response = self.http
+        let response = self
+            .http
             .post(&url)
             .bearer_auth(&self.access_token)
             .header("Content-Length", "0")
@@ -391,7 +431,8 @@ impl GmailClient {
             "removeLabelIds": ["UNREAD"]
         });
 
-        let response = self.http
+        let response = self
+            .http
             .post(&url)
             .bearer_auth(&self.access_token)
             .json(&body)
@@ -406,18 +447,15 @@ impl GmailClient {
     }
 
     /// Send a reply to an email
-    pub async fn send_reply(
-        &self,
-        original: &crate::email::Email,
-        body_text: &str,
-    ) -> Result<()> {
+    pub async fn send_reply(&self, original: &crate::email::Email, body_text: &str) -> Result<()> {
         let url = format!("{}/users/me/messages/send", GMAIL_API_BASE);
 
         // Extract reply-to address or use from address
         let to_address = &original.from;
 
         // Build subject with Re: prefix if not already present
-        let subject = if original.subject.starts_with("Re:") || original.subject.starts_with("RE:") {
+        let subject = if original.subject.starts_with("Re:") || original.subject.starts_with("RE:")
+        {
             original.subject.clone()
         } else {
             format!("Re: {}", original.subject)
@@ -432,11 +470,7 @@ impl GmailClient {
              Content-Type: text/plain; charset=utf-8\r\n\
              \r\n\
              {}",
-            to_address,
-            subject,
-            original.id,
-            original.id,
-            body_text
+            to_address, subject, original.id, original.id, body_text
         );
 
         // Encode as base64url
@@ -447,7 +481,8 @@ impl GmailClient {
             "threadId": original.thread_id
         });
 
-        let response = self.http
+        let response = self
+            .http
             .post(&url)
             .bearer_auth(&self.access_token)
             .json(&payload)
@@ -461,6 +496,12 @@ impl GmailClient {
 
         Ok(())
     }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct UserProfile {
+    email_address: String,
 }
 
 #[derive(Debug, Deserialize)]
