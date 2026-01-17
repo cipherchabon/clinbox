@@ -1,0 +1,10 @@
+/target
+
+# Sensitive files
+credentials.json
+*.pem
+*.key
+.env*
+
+# macOS
+.DS_Store
