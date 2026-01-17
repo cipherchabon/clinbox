@@ -46,15 +46,21 @@ Developers receive dozens of emails daily: infrastructure alerts, newsletters, s
 
 ## Installation
 
+### Homebrew (macOS)
+
+```bash
+brew tap cipherchabon/tap
+brew install clinbox
+```
+
+### From source
+
 ```bash
 # Clone the repository
 git clone https://github.com/cipherchabon/clinbox.git
 cd clinbox
 
-# Build
-cargo build --release
-
-# Install (optional)
+# Build and install
 cargo install --path .
 ```
 
