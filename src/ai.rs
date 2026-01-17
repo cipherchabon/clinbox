@@ -25,6 +25,23 @@ Priority guidelines:
 
 Respond ONLY with valid JSON, no markdown or explanation."#;
 
+const ARTICLE_SUMMARY_PROMPT: &str = r#"You are summarizing an article/email for later reading.
+
+Language: {language}
+
+Requirements:
+1. Create a COMPREHENSIVE summary that covers ALL key points
+2. Do NOT omit any important information
+3. The summary should be detailed enough that the reader doesn't need to read the original
+4. At the end, list 3-7 key takeaways that should stick in the reader's mind
+5. Write in {language}
+
+Respond ONLY with valid JSON, no markdown or explanation:
+{
+  "summary": "comprehensive summary here...",
+  "key_takeaways": ["point 1", "point 2", ...]
+}"#;
+
 const REPLY_PROMPT: &str = r#"You are an email assistant helping a software developer write email replies.
 
 Write a professional, concise reply to the email. Guidelines:
@@ -37,10 +54,17 @@ Write a professional, concise reply to the email. Guidelines:
 
 Respond with ONLY the reply text, no subject line, no greeting like "Here's a draft", just the email body ready to send."#;
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct ArticleSummary {
+    pub summary: String,
+    pub key_takeaways: Vec<String>,
+}
+
 pub struct AiClient {
     http: Client,
     api_key: String,
     model: String,
+    model_reply: String,
 }
 
 impl AiClient {
@@ -49,6 +73,7 @@ impl AiClient {
             http: Client::new(),
             api_key: config.ai.api_key.clone(),
             model: config.ai.model_analysis.clone(),
+            model_reply: config.ai.model_reply.clone(),
         }
     }
 
@@ -181,6 +206,76 @@ impl AiClient {
             .unwrap_or_default();
 
         Ok(content.trim().to_string())
+    }
+
+    pub async fn summarize_article(&self, email: &Email, language: &str) -> Result<ArticleSummary> {
+        let email_content = format!(
+            "From: {}\nSubject: {}\nDate: {}\n\nBody:\n{}",
+            email.from,
+            email.subject,
+            email.date.format("%Y-%m-%d %H:%M"),
+            truncate(&email.body_text(), 4000) // Use more content for comprehensive summary
+        );
+
+        let system_prompt = ARTICLE_SUMMARY_PROMPT
+            .replace("{language}", language);
+
+        let request = ChatRequest {
+            model: self.model_reply.clone(), // Use higher quality model for summaries
+            messages: vec![
+                ChatMessage {
+                    role: "system".to_string(),
+                    content: system_prompt,
+                },
+                ChatMessage {
+                    role: "user".to_string(),
+                    content: email_content,
+                },
+            ],
+            temperature: Some(0.3),
+            max_tokens: Some(2000),
+        };
+
+        let response = self
+            .http
+            .post(OPENROUTER_API_URL)
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .header("HTTP-Referer", "https://github.com/clinbox")
+            .header("X-Title", "Clinbox")
+            .json(&request)
+            .send()
+            .await
+            .context("Failed to call AI API")?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            anyhow::bail!("AI API error {}: {}", status, body);
+        }
+
+        let chat_response: ChatResponse = response
+            .json()
+            .await
+            .context("Failed to parse AI response")?;
+
+        let content = chat_response
+            .choices
+            .first()
+            .map(|c| c.message.content.clone())
+            .unwrap_or_default();
+
+        // Clean up JSON if wrapped in markdown
+        let json_str = content
+            .trim()
+            .trim_start_matches("```json")
+            .trim_start_matches("```")
+            .trim_end_matches("```")
+            .trim();
+
+        let summary: ArticleSummary =
+            serde_json::from_str(json_str).context("Failed to parse AI summary JSON")?;
+
+        Ok(summary)
     }
 }
 

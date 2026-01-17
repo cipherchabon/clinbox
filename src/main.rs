@@ -113,6 +113,7 @@ fn configure(key: &str, value: &str) -> Result<()> {
     match key {
         "ai.api_key" => config.ai.api_key = value.to_string(),
         "ai.model" => config.ai.model_analysis = value.to_string(),
+        "language" => config.language = value.to_string(),
         _ => anyhow::bail!(
             "Unknown config key: {}. Use 'clinbox account add' to configure Gmail accounts.",
             key
@@ -581,6 +582,61 @@ async fn run_interactive(
                         }
                     }
                 }
+                Action::Summary => {
+                    // Generate summary
+                    tui.draw_message("🤖 Generating comprehensive summary...", false)?;
+
+                    match ai.summarize_article(email, &config.language).await {
+                        Ok(summary) => {
+                            // Show preview
+                            tui.draw_summary_preview(email, &summary)?;
+
+                            // Wait for confirmation
+                            if tui.wait_for_confirm()? {
+                                // Save to markdown file
+                                match save_summary_markdown(email, &summary) {
+                                    Ok(path) => {
+                                        // Show saved message with path
+                                        tui.draw_message(
+                                            &format!("📝 Saved: {}\n\nOpen file? [y/n]", path.display()),
+                                            false,
+                                        )?;
+
+                                        // Ask if open file
+                                        if tui.wait_for_yes_no()? {
+                                            let _ = open::that(&path);
+                                        }
+
+                                        // Ask if archive
+                                        tui.draw_message("Archive email? [y/n]", false)?;
+                                        if tui.wait_for_yes_no()? {
+                                            gmail.archive(&email.id).await?;
+                                            stats.archived += 1;
+                                        }
+                                        stats.summaries_saved += 1;
+                                        break;
+                                    }
+                                    Err(e) => {
+                                        tui.draw_message(
+                                            &format!("❌ Failed to save: {}", e),
+                                            true,
+                                        )?;
+                                        std::thread::sleep(std::time::Duration::from_secs(2));
+                                        tui.draw_email(email, analysis.as_ref(), current, total)?;
+                                    }
+                                }
+                            } else {
+                                // User cancelled
+                                tui.draw_email(email, analysis.as_ref(), current, total)?;
+                            }
+                        }
+                        Err(e) => {
+                            tui.draw_message(&format!("❌ Failed to generate summary: {}", e), true)?;
+                            std::thread::sleep(std::time::Duration::from_secs(2));
+                            tui.draw_email(email, analysis.as_ref(), current, total)?;
+                        }
+                    }
+                }
                 Action::Open => {
                     let url = format!("https://mail.google.com/mail/u/0/#inbox/{}", email.id);
                     let _ = open::that(&url);
@@ -606,6 +662,7 @@ async fn run_interactive(
                         stats.tasks_created,
                         stats.skipped,
                         stats.replied,
+                        stats.summaries_saved,
                     )?;
                     tui.wait_for_key()?;
                     return Ok(());
@@ -622,10 +679,70 @@ async fn run_interactive(
         stats.tasks_created,
         stats.skipped,
         stats.replied,
+        stats.summaries_saved,
     )?;
     tui.wait_for_key()?;
 
     Ok(())
+}
+
+fn save_summary_markdown(
+    email: &crate::email::Email,
+    summary: &crate::ai::ArticleSummary,
+) -> Result<std::path::PathBuf> {
+    use std::fs;
+
+    let summaries_dir = Config::summaries_dir()?;
+    fs::create_dir_all(&summaries_dir)?;
+
+    // Generate filename from date and subject
+    let date = email.date.format("%Y-%m-%d").to_string();
+    let safe_subject = email
+        .subject
+        .chars()
+        .filter(|c| c.is_alphanumeric() || *c == ' ' || *c == '-' || *c == '_')
+        .take(50)
+        .collect::<String>()
+        .trim()
+        .replace(' ', "-");
+    let filename = format!("{}-{}.md", date, safe_subject);
+    let file_path = summaries_dir.join(&filename);
+
+    // Generate markdown content
+    let takeaways = summary
+        .key_takeaways
+        .iter()
+        .map(|t| format!("- {}", t))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    let content = format!(
+        r#"# {}
+
+**From:** {}
+**Date:** {}
+
+## Resumen
+
+{}
+
+## Puntos Clave
+
+{}
+
+---
+*Generated by Clinbox*
+"#,
+        email.subject,
+        email.from,
+        email.date.format("%Y-%m-%d %H:%M"),
+        summary.summary,
+        takeaways
+    );
+
+    fs::write(&file_path, content)?;
+
+    Ok(file_path)
 }
 
 #[derive(Default)]
@@ -635,10 +752,11 @@ struct Stats {
     tasks_created: usize,
     skipped: usize,
     replied: usize,
+    summaries_saved: usize,
 }
 
 impl Stats {
     fn total(&self) -> usize {
-        self.archived + self.deleted + self.tasks_created + self.skipped + self.replied
+        self.archived + self.deleted + self.tasks_created + self.skipped + self.replied + self.summaries_saved
     }
 }

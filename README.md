@@ -16,7 +16,7 @@ A terminal-first email client with AI-powered triage for developers.
 │                                                                 │
 │ Priority: 🔵 Informative | Category: Billing                   │
 ├─────────────────────────────────────────────────────────────────┤
-│ [a]rchive  [d]elete  [t]ask  [r]eply  [o]pen  [s]kip  [q]uit   │
+│ [a]rchive [d]elete [t]ask [r]eply [n]ote [o]pen [s]kip [q]uit  │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -42,6 +42,7 @@ Developers receive dozens of emails daily: infrastructure alerts, newsletters, s
 - **AI-powered analysis**: Automatic priority, category, and summary for each email
 - **Quick actions**: Archive, delete, create task, reply, or skip with a single keystroke
 - **AI-generated replies**: Get draft replies that match the tone of the original email
+- **Article summaries**: Save comprehensive summaries of long emails/articles as markdown files
 - **Local task storage**: Create tasks from emails without external dependencies
 
 ## Installation
@@ -161,6 +162,7 @@ clinbox --account work
 | `d` | Delete | Move to trash |
 | `t` | Task | Create task from email |
 | `r` | Reply | Generate AI draft and send/edit |
+| `n` | Note | Generate comprehensive summary and save as markdown |
 | `o` | Open | Open in browser |
 | `v` | View | Show full email body |
 | `s` | Skip | Next email without action |
@@ -180,7 +182,7 @@ clinbox config ai.model google/gemini-2.0-flash-001
 
 ## Configuration Files
 
-All configuration is stored in `~/.clinbox/`:
+Configuration is stored in `~/.clinbox/`:
 
 ```
 ~/.clinbox/
@@ -189,6 +191,17 @@ All configuration is stored in `~/.clinbox/`:
 └── tokens/
     ├── personal.json   # OAuth token for "personal" account
     └── work.json       # OAuth token for "work" account
+```
+
+Article summaries are saved to `~/Documents/Clinbox/`.
+
+### Language Configuration
+
+Set the language for AI-generated summaries:
+
+```bash
+clinbox config language es  # Spanish (default)
+clinbox config language en  # English
 ```
 
 ## Roadmap

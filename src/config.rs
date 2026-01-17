@@ -17,6 +17,12 @@ pub struct Config {
     pub gmail: GmailConfig,
     pub ai: AiConfig,
     pub tasks: TasksConfig,
+    #[serde(default = "default_language")]
+    pub language: String,
+}
+
+fn default_language() -> String {
+    "es".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -56,6 +62,7 @@ impl Default for Config {
                 provider: "local".to_string(),
                 file_path: None,
             },
+            language: default_language(),
         }
     }
 }
@@ -92,6 +99,12 @@ impl Config {
         Ok(Self::config_dir()?.join("tasks.json"))
     }
 
+    /// Returns the summaries directory path (~/Documents/Clinbox)
+    pub fn summaries_dir() -> Result<PathBuf> {
+        let home = dirs::home_dir().context("Could not find home directory")?;
+        Ok(home.join("Documents").join("Clinbox"))
+    }
+
     /// Load config from file or create default, with automatic migration
     pub fn load() -> Result<Self> {
         let config_path = Self::config_path()?;
@@ -125,6 +138,7 @@ impl Config {
             },
             ai: legacy.ai,
             tasks: legacy.tasks,
+            language: default_language(),
         };
 
         // If legacy had credentials, create a "default" account

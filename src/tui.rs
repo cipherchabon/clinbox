@@ -10,6 +10,7 @@ use ratatui::{
 };
 use std::io::{self, stdout};
 
+use crate::ai::ArticleSummary;
 use crate::email::{Email, EmailAnalysis};
 
 pub enum Action {
@@ -17,6 +18,7 @@ pub enum Action {
     Delete,
     Task,
     Reply,
+    Summary,
     Open,
     Skip,
     ViewFull,
@@ -154,7 +156,7 @@ impl Tui {
             frame.render_widget(body_widget, content_chunks[1]);
 
             // Actions footer
-            let actions = " [a]rchive  [d]elete  [t]ask  [r]eply  [o]pen  [v]iew  [s]kip  [q]uit ";
+            let actions = " [a]rchive [d]elete [t]ask [r]eply [n]ote [o]pen [v]iew [s]kip [q]uit ";
             let actions_widget = Paragraph::new(actions)
                 .style(Style::default().fg(Color::Green))
                 .alignment(Alignment::Center)
@@ -244,21 +246,26 @@ impl Tui {
         tasks_created: usize,
         skipped: usize,
         replied: usize,
+        summaries_saved: usize,
     ) -> Result<()> {
         self.terminal.draw(|frame| {
             let area = frame.area();
 
-            let text = format!(
+            let mut text = format!(
                 "📊 Session Summary\n\n\
                  Total emails processed: {}\n\
                  ✅ Archived: {}\n\
                  🗑️  Deleted: {}\n\
                  📝 Tasks created: {}\n\
-                 💬 Replied: {}\n\
-                 ⏭️  Skipped: {}\n\n\
-                 Press any key to exit",
-                total, archived, deleted, tasks_created, replied, skipped
+                 💬 Replied: {}",
+                total, archived, deleted, tasks_created, replied
             );
+
+            if summaries_saved > 0 {
+                text.push_str(&format!("\n 📓 Summaries saved: {}", summaries_saved));
+            }
+
+            text.push_str(&format!("\n ⏭️  Skipped: {}\n\n Press any key to exit", skipped));
 
             let widget = Paragraph::new(text)
                 .style(Style::default().fg(Color::Cyan))
@@ -283,6 +290,7 @@ impl Tui {
                     KeyCode::Char('d') => return Ok(Action::Delete),
                     KeyCode::Char('t') => return Ok(Action::Task),
                     KeyCode::Char('r') => return Ok(Action::Reply),
+                    KeyCode::Char('n') => return Ok(Action::Summary),
                     KeyCode::Char('o') => return Ok(Action::Open),
                     KeyCode::Char('v') => return Ok(Action::ViewFull),
                     KeyCode::Char('s') => return Ok(Action::Skip),
@@ -389,6 +397,107 @@ impl Tui {
                     KeyCode::Char('s') => return Ok(ReplyAction::Send),
                     KeyCode::Char('e') => return Ok(ReplyAction::Edit),
                     KeyCode::Char('c') | KeyCode::Esc => return Ok(ReplyAction::Cancel),
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    pub fn draw_summary_preview(&mut self, email: &Email, summary: &ArticleSummary) -> Result<()> {
+        self.terminal.draw(|frame| {
+            let area = frame.area();
+
+            let chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([
+                    Constraint::Length(3), // Header
+                    Constraint::Length(4), // Email info
+                    Constraint::Min(10),   // Summary content
+                    Constraint::Length(3), // Actions
+                ])
+                .split(area);
+
+            // Header
+            let header = Paragraph::new(" 📝 Article Summary (AI Generated)")
+                .style(
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                )
+                .block(Block::default().borders(Borders::ALL));
+            frame.render_widget(header, chunks[0]);
+
+            // Email info
+            let info = format!(
+                " From: {}\n Subject: {}",
+                email.sender_name(),
+                truncate(&email.subject, 60)
+            );
+            let info_widget = Paragraph::new(info)
+                .style(Style::default().fg(Color::White))
+                .block(Block::default().borders(Borders::LEFT | Borders::RIGHT));
+            frame.render_widget(info_widget, chunks[1]);
+
+            // Summary content with key takeaways
+            let content_chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([
+                    Constraint::Percentage(60), // Summary
+                    Constraint::Percentage(40), // Key takeaways
+                ])
+                .split(chunks[2]);
+
+            // Summary
+            let summary_widget = Paragraph::new(format!(" {}", summary.summary.replace('\n', "\n ")))
+                .style(Style::default().fg(Color::Green))
+                .wrap(Wrap { trim: false })
+                .block(
+                    Block::default()
+                        .title(" Resumen ")
+                        .borders(Borders::ALL)
+                        .border_style(Style::default().fg(Color::Green)),
+                );
+            frame.render_widget(summary_widget, content_chunks[0]);
+
+            // Key takeaways
+            let takeaways_text = summary
+                .key_takeaways
+                .iter()
+                .map(|t| format!(" • {}", t))
+                .collect::<Vec<_>>()
+                .join("\n");
+            let takeaways_widget = Paragraph::new(takeaways_text)
+                .style(Style::default().fg(Color::Yellow))
+                .wrap(Wrap { trim: false })
+                .block(
+                    Block::default()
+                        .title(" Puntos Clave ")
+                        .borders(Borders::ALL)
+                        .border_style(Style::default().fg(Color::Yellow)),
+                );
+            frame.render_widget(takeaways_widget, content_chunks[1]);
+
+            // Actions
+            let actions = " [Enter] Save to Notion  [Esc] Cancel ";
+            let actions_widget = Paragraph::new(actions)
+                .style(Style::default().fg(Color::Magenta))
+                .alignment(Alignment::Center)
+                .block(Block::default().borders(Borders::ALL));
+            frame.render_widget(actions_widget, chunks[3]);
+        })?;
+        Ok(())
+    }
+
+    pub fn wait_for_yes_no(&self) -> Result<bool> {
+        loop {
+            if let Event::Key(key) = event::read()? {
+                if key.kind != KeyEventKind::Press {
+                    continue;
+                }
+
+                match key.code {
+                    KeyCode::Char('y') | KeyCode::Char('Y') => return Ok(true),
+                    KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => return Ok(false),
                     _ => {}
                 }
             }
